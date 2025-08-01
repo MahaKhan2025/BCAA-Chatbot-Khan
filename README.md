@@ -22,8 +22,13 @@
 │   └── secrets.toml
 ├── requirements.txt
 └── .env
+
 🚀 Getting StartedPrerequisitesPython 3.8 or higher.A virtual environment is highly recommended.Local Setup & InstallationClone the repository from GitHub:git clone https://github.com/MahaKhan2025/BCAA-Chatbot-Khan.git
+
 Navigate into the project directory:cd BCAA-Chatbot-Khan
+
 Install the required dependencies using the requirements.txt file:pip install -r requirements.txt
+
 Create your .env file with your OpenAI API key and your .streamlit/secrets.toml file with your secret information.How to RunMake sure your virtual environment is activated.Run the main Streamlit application from your terminal:streamlit run your_main_app_file.py
+
 The app will open automatically in your web browser.Created by Kareemkhan Mahaboob Khan
