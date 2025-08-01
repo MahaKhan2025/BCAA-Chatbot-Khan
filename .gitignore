@@ -1,0 +1,34 @@
+  # Byte-compiled / optimized / DLL files
+  __pycache__/
+  *.py[cod]
+  *$py.class
+
+  # Virtual environments
+  venv/
+  env/
+  ENV/
+  .venv/
+  .env
+
+  # Distribution / packaging
+  build/
+  dist/
+  *.egg-info/
+
+  # VS Code
+  .vscode/
+  # PyCharm
+  .idea/
+
+  # Streamlit
+  .streamlit/secrets.toml
+  # Specific virtual environment names
+venv_khan/
+venv_deploy/
+venv_deploytest/
+
+# Generated FAISS Index
+index.faiss
+
+# Old requirements file
+requirements_from_global.txt
