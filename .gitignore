@@ -32,3 +32,6 @@ index.faiss
 
 # Old requirements file
 requirements_from_global.txt
+
+.env
+.streamlit/secrets.toml
