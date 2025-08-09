@@ -1,3 +1,4 @@
+# pages/04_About_the_project.py
 import streamlit as st
 
 def about_the_project_page():
@@ -8,8 +9,8 @@ def about_the_project_page():
 
     #### 👨‍💻 Team Members
     - Member 1: Kareemkhan Mahaboob Khan
-    - Member 2: [Team Member Name]  # Fill in actual names here!
-    - Member 3: [Team Member Name]  # Fill in actual names here!
+    - Member 2: [Team Member Name]  # Not applicable
+    - Member 3: [Team Member Name]  # Not applicable
 
     #### 🎯 Project Scope
     This web application provides contextualized course advisory based on user queries using a Large Language Model (LLM) and a robust **hybrid Retrieval-Augmented Generation (RAG)** system. It leverages both a **static FAISS vector store for general queries** and **real-time web scraping for specific, up-to-date information**.
@@ -41,6 +42,8 @@ def about_the_project_page():
     - **LangChain (Components):** Used implicitly for powerful functionalities like text splitting and integration with embedding models.
     - **Python-Dotenv:** For secure management of environment variables (like API keys).
     - **Numpy:** For numerical operations, especially with embeddings.
+    - **gspread:** Python API for Google Sheets to log user interactions.
+    - **Google-Auth:** Library for authentication with Google services.
 
     ---
     #### 📁 Project File Organization
@@ -49,42 +52,27 @@ def about_the_project_page():
 
     ```
     .
-    ├── main.py    # Main entry point of the app # Run as: streamlit run main.py
-    │                           
-    ├── build_faiss_index.py    # NOTE: Run this file before running the main app.
+    ├── main.py     # Main entry point of the app
+    ├── build_faiss_index.py
     ├── pages/
-    │   ├── 01_About_the_project.py
-    │   ├── 02_Methodology.py
-    │   ├── 03_Chatbot.py
-    │   ├── 04_How_to_use.py
-    │   └── 05_View_All_Courses.py
+    │   ├── 01_main.py
+    │   ├── 02_View_All_courses.py
+    │   ├── 03_How_to_use.py
+    │   ├── 04_About_the_project.py
+    │   └── 05_Methodology.py
     ├── data/
     │   ├── faiss_index.bin
     │   ├── faiss_metadata.json
     │   └── specialist_diploma_programmes.json
-    ├── logs/
-    │   └── user_interactions.jsonl
     ├── logics/
     │   └── customer_query_handler.py
     ├── helper_functions/
-    │   ├── llm.py
     │   └── utility.py
     ├── .streamlit/
-    │   └── secrets.toml
+    │   └── secrets.toml  
     ├── requirements.txt
     └── .env
     ```
-
-    - **`main.py`**: This is the file you run with `streamlit run`. It serves as the home page and can contain general information or a welcome message.
-    - **`build_faiss_index.py`**: This script is crucial for creating the vector store (`faiss_index.bin`) and its metadata. It must be run first.
-    - **`pages/`**: This directory is where Streamlit automatically looks for additional pages to display in the sidebar menu. The numerical prefixes (e.g., `01_`) are used to control the display order.
-    - **`data/`**: Stores input data file and the processed knowledge base files used by the RAG system.
-    - **`logs/`**: Stores logs of user interactions for analysis.
-    - **`logics/`**: Contains the core Python scripts that handle the application's business logic, such as the `ChatbotHandler` class.
-    - **`helper_functions/`**: Contains reusable utility functions and LLM-related logic.
-    - **`.streamlit/`**: A special directory for Streamlit configuration files, such as `secrets.toml` for securely managing API keys.
-    - **`requirements.txt`**: Lists all the necessary Python libraries for the project to be installed via `pip`.
-    - **`.env`**: Securely stores environment variables like your OpenAI API key.
     """)
 
 if __name__ == "__main__":

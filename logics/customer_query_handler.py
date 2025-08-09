@@ -1,3 +1,5 @@
+# customer_query_handler.py
+
 import streamlit as st
 import json
 import os
@@ -6,11 +8,11 @@ from collections import deque
 import re
 import faiss
 import numpy as np
-from langchain_community.embeddings import OpenAIEmbeddings
+# Fix for LangChainDeprecationWarning - using the updated import
+from langchain_openai import OpenAIEmbeddings
 from dotenv import load_dotenv
 import requests
 from bs4 import BeautifulSoup
-from bs4.element import NavigableString, Tag
 
 # --- 1. Load Environment Variables & Initialize OpenAI Client ---
 load_dotenv()
@@ -34,6 +36,10 @@ EMBEDDING_MODEL_NAME = "text-embedding-ada-002"
 
 # --- 3. Data Loading Functions (Existing and New FAISS Loading) ---
 def load_structured_course_data(json_file_path='data/specialist_diploma_programmes.json'):
+    """
+    Loads structured course data from a JSON file and populates the global dictionary.
+    This revised version now uses the full title as the dictionary key to ensure a match.
+    """
     global dict_of_courses_structured
     try:
         with open(json_file_path, 'r', encoding='utf-8') as f:
@@ -42,10 +48,11 @@ def load_structured_course_data(json_file_path='data/specialist_diploma_programm
         if isinstance(data, list):
             print("Structured course data is a list. Processing each item...")
             for item in data:
-                course_title = item.get('title')
-                if course_title:
-                    dict_of_courses_structured[course_title] = {
-                        'name': course_title,
+                course_title_full = item.get('title')
+                if course_title_full:
+                    # Initialize with default None values
+                    course_details = {
+                        'name': course_title_full,  # Use the full title for the 'name' field
                         'url': item.get('url', ''),
                         'description': item.get('description', ''),
                         'category': None,
@@ -57,6 +64,27 @@ def load_structured_course_data(json_file_path='data/specialist_diploma_programm
                         'provider': None,
                         'course_code': None
                     }
+                    
+                    # --- REVISED LOGIC: Parse details from title and description ---
+                    # 1. Extract a course code using a regex pattern that also includes acronyms
+                    course_code_match = re.search(r'\b[A-Z]{2,5}\d{2,5}\b', course_title_full)
+                    if course_code_match:
+                        course_details['course_code'] = course_code_match.group(0).strip()
+                    else:
+                        # NEW: Try to extract a common acronym like SDBIM, SDCM, etc.
+                        acronym_match = re.search(r'\(([A-Z]{3,5})\)', course_title_full)
+                        if acronym_match:
+                            course_details['course_code'] = acronym_match.group(1).strip()
+                    
+                    # 2. Try to extract duration from description
+                    duration_match = re.search(r'(\d+)\s*(?:month|year)s?\b', item.get('description', ''), re.IGNORECASE)
+                    if duration_match:
+                        course_details['duration'] = duration_match.group(0).strip()
+                    # --- END REVISED LOGIC ---
+
+                    # --- CRITICAL FIX: Use the full title as the dictionary key
+                    dict_of_courses_structured[course_title_full] = course_details
+
         elif isinstance(data, dict):
             print("Structured course data is a dictionary. Processing key-value pairs...")
             for course_name, details in data.items():
@@ -84,8 +112,12 @@ def load_faiss_components():
         return
 
     print(f"Initializing embedding model for query: {EMBEDDING_MODEL_NAME}...")
-    embeddings_model = OpenAIEmbeddings(model=EMBEDDING_MODEL_NAME)
-    print("Embedding model initialized.")
+    try:
+        embeddings_model = OpenAIEmbeddings(model=EMBEDDING_MODEL_NAME)
+        print("Embedding model initialized.")
+    except Exception as e:
+        st.error(f"Error initializing embedding model: {e}. Check your OPENAI_API_KEY and network.")
+        return
 
     if os.path.exists(FAISS_INDEX_PATH) and os.path.exists(METADATA_PATH):
         try:
@@ -128,8 +160,15 @@ def fetch_url_content(url):
                     table_text.append("|".join(row_text))
             if table_text:
                 relevant_text.append("--- TABLE DATA ---\n" + "\n".join(table_text) + "\n--- END TABLE DATA ---")
-
-        return "\n".join(relevant_text)
+        
+        scraped_text = "\n".join(relevant_text)
+        
+        # 🐛 DEBUGGING LINE: Print scraped content to terminal
+        print(f"--- START SCRAPED CONTENT FROM {url} ---")
+        print(scraped_text)
+        print(f"--- END SCRAPED CONTENT FROM {url} ---")
+        
+        return scraped_text
     except requests.exceptions.RequestException as e:
         print(f"Error fetching URL {url}: {e}")
         return ""
@@ -174,7 +213,9 @@ def identify_user_intent(query, history=None):
 
 def extract_course_name_from_query(query):
     for course_name in dict_of_courses_structured:
-        if re.search(r'\b' + re.escape(course_name) + r'\b', query, re.IGNORECASE):
+        # Use a more robust regex to match the full course name or its acronym
+        match = re.search(r'\b(?:' + re.escape(course_name) + r'|' + re.escape(dict_of_courses_structured[course_name].get('course_code', '')) + r')\b', query, re.IGNORECASE)
+        if match:
             return course_name
     return None
 
@@ -185,68 +226,165 @@ def process_user_message(user_query: str):
     if faiss_index is None:
         load_faiss_components()
         if faiss_index is None:
-            return "I'm sorry, my knowledge base could not be loaded. Please ensure all setup steps are complete.", []
+            return "I'm sorry, my knowledge base could not be loaded. Please ensure all setup steps are complete.", [], False
     if embeddings_model is None:
-        return "I'm sorry, the embedding model is not initialized.", []
+        return "I'm sorry, the embedding model is not initialized.", [], False
 
     try:
-        query_embedding = embeddings_model.embed_query(user_query)
+        # --- NEW: Dynamically enrich the user query for broader search ---
+        enriched_query = user_query
+        if "project managers" in user_query.lower():
+            enriched_query += " construction management BIM management"
+        
+        query_embedding = embeddings_model.embed_query(enriched_query)
         query_embedding_np = np.array([query_embedding]).astype('float32')
     except Exception as e:
-        return f"Error embedding your query: {e}. Cannot perform search.", []
+        return f"Error embedding your query: {e}. Cannot perform search.", [], False
 
     k = 5
     distances, indices = faiss_index.search(query_embedding_np, k)
 
     retrieved_context = []
     retrieved_course_names = set()
-    retrieved_urls = set()
+    retrieved_urls_with_names = {} # Use a dictionary to store unique URLs with course names
 
     for i in indices[0]:
         if i != -1 and i < len(course_chunks_metadata):
             chunk_info = course_chunks_metadata[i]
             retrieved_context.append(chunk_info["chunk"])
             retrieved_course_names.add(chunk_info["original_item_title"])
-            retrieved_urls.add(chunk_info["url"])
+            
+            # --- FIX: Store URL and course name together
+            course_name = chunk_info["original_item_title"]
+            url = chunk_info["url"]
+            if course_name not in retrieved_urls_with_names:
+                retrieved_urls_with_names[course_name] = url
 
     context_str = "\n---\n".join(retrieved_context)
 
     dynamic_context = ""
-    specific_detail_keywords = ["fee", "cost", "price", "charge", "entry", "requirements", "prerequisite", "schedule", "intake", "start date", "duration"]
-    if any(keyword in user_query.lower() for keyword in specific_detail_keywords) and global_last_discussed_course_name:
-        course_url = get_url_from_course_name(global_last_discussed_course_name)
-        if course_url:
-            print(f"User asked for details. Fetching content from {course_url}...")
-            scraped_content = fetch_url_content(course_url)
-            if scraped_content:
-                dynamic_context = f"\n\n--- Dynamically Scraped Content from {course_url} ---\n{scraped_content}\n"
-                print("Successfully scraped content. Adding to context.")
-            else:
-                print(f"Failed to scrape content from {course_url}. Relying on static context.")
+    course_url_for_details = None
+    
+    specific_detail_keywords = ["fee", "cost", "price", "charge", "entry", "requirements", "prerequisite", "schedule", "intake", "start date", "duration", "course dates"]
+    has_specific_query = any(keyword in user_query.lower() for keyword in specific_detail_keywords)
+
+    # --- FIX: Prioritize explicit course name from user query for follow-ups ---
+    explicit_course_name = extract_course_name_from_query(user_query)
+    if explicit_course_name:
+        global_last_discussed_course_name = explicit_course_name
+        
+    if has_specific_query and global_last_discussed_course_name:
+        course_url_for_details = get_url_from_course_name(global_last_discussed_course_name)
+    elif retrieved_course_names:
+        first_course_name = next(iter(retrieved_course_names), None)
+        if first_course_name:
+            course_url_for_details = get_url_from_course_name(first_course_name)
+
+    if course_url_for_details:
+        print(f"Fetching details from {course_url_for_details}...")
+        scraped_content = fetch_url_content(course_url_for_details)
+        if scraped_content:
+            dynamic_context = f"\n\n--- Dynamically Scraped Content from {course_url_for_details} ---\n{scraped_content}\n"
+            print("Successfully scraped content. Adding to context.")
+        else:
+            print(f"Failed to scrape content from {course_url_for_details}. Relying on static context.")
 
     final_context = context_str + dynamic_context
 
     if not final_context:
-        return "I couldn't find relevant information in my knowledge base. Please try rephrasing or ask about specific BCA Academy Specialist Diploma programmes.", []
+        return "I couldn't find relevant information in my knowledge base. Please try rephrasing or ask about specific BCA Academy Specialist Diploma programmes.", [], has_specific_query
+    
+    # --- UPDATED LOGIC: Use more specific and structured prompts for different queries
+    if has_specific_query and dynamic_context:
+        # Check for schedule query and use a specific prompt
+        if any(keyword in user_query.lower() for keyword in ["schedule", "intake", "start date", "duration", "course dates"]):
+            system_prompt = f"""
+            You are a helpful AI assistant. Your task is to extract all schedule, intake, and course date information for the course "{global_last_discussed_course_name}" from the provided context.
+            User Query: "{user_query}"
+            Context from Website:
+            {dynamic_context}
+            
+            Instructions:
+            - Summarize all dates, times, and durations related to the course schedule.
+            - If the information is not present, state: "The requested information is not available on the official website."
+            - Do not include any extra sentences.
+            - Always include the course URL at the end of the response.
+            - Your final answer should be formatted as: "[Extracted Answer]\n\nFor more details, please refer to the official course website: [URL]"
+            """
+        else:
+            # General prompt for other specific queries (fees, requirements)
+            system_prompt = f"""
+            You are a data extraction assistant. Find the exact piece of information requested by the user from the provided context for the course: "{global_last_discussed_course_name}".
+            User Query: "{user_query}"
+            Context from Website:
+            {dynamic_context}
+            
+            Instructions:
+            - Find the specific detail requested for the specified course.
+            - Respond with a concise and direct answer. Do not include extra sentences.
+            - If the information is not explicitly present, state: "The requested information is not available on the official website."
+            - Always include the course URL at the end of the response.
+            - Your final answer should be formatted as: "[Extracted Answer]\n\nFor more details, please refer to the official course website: [URL]"
+            """
+    else:
+        # --- NEW & IMPROVED PROMPT for the initial query to provide structured, numbered list
+        course_summaries = []
+        # Separate full diplomas and modular certificates
+        full_diplomas = []
+        modular_courses = []
 
-    system_prompt_base = """
-    You are a helpful AI assistant knowledgeable about BCA Academy's Specialist Diploma programmes.
-    Your task is to provide detailed and helpful information based ONLY on the provided course context.
+        for course_name in list(retrieved_course_names):
+            if "modular" in course_name.lower() or "certificate" in course_name.lower():
+                modular_courses.append(course_name)
+            else:
+                full_diplomas.append(course_name)
 
-    The context may come from a static knowledge base or may be dynamically retrieved from a website. The dynamic content is often structured (e.g., in tables or lists). Prioritize information from the dynamically retrieved content if it is available and relevant to the user's query.
+        # Prioritize full diplomas first, then add modular certificates
+        courses_to_display = full_diplomas + modular_courses
+        
+        # Limit the display to a maximum of 3 courses
+        for course_name in courses_to_display[:3]:
+            details = dict_of_courses_structured.get(course_name, {})
+            url = details.get('url', 'URL not available')
+            description = details.get('description', 'Description not available.')
+            course_code = details.get('course_code', 'N/A')
 
-    When a user asks about a course, provide a comprehensive response that includes:
-    1. A brief introduction of the course.
-    2. A summary of the course content and objectives, including skills gained and career opportunities.
-    3. A clear instruction to the user to 'For more details, please refer to the official course website:' followed by the course URL(s).
+            course_summaries.append(
+                f"**Course Name:** **{course_name}**\n"
+                f"**Event Code:** {course_code}\n"
+                f"**Description:** {description}\n"
+                f"**URL:** {url}"
+            )
+        
+        summaries_text = "\n\n".join(course_summaries)
 
-    When a user asks a follow-up question (e.g., about fees, entry requirements, or duration), use the context to provide the most accurate and up-to-date information available. If the information is not in the context, you must state that the information is not available and advise them to check the official course website for the most accurate and up-to-date details. You should always include the URL in the response.
+        system_prompt = f"""
+        You are a helpful AI assistant knowledgeable about BCA Academy's Specialist Diploma programmes.
+        Your task is to provide a structured, numbered list of the top 3 most relevant courses based on the user's query.
 
-    Your responses should be formatted clearly and professionally.
-    """
-    urls_str = "\n".join(retrieved_urls)
-    system_prompt = f"{system_prompt_base}\n\nCourse Information Context:\n{final_context}\n\nRelevant URLs:\n{urls_str}"
+        User Query: "{user_query}"
 
+        Course Information Context (from multiple sources):
+        {final_context}
+
+        Instructions:
+        1. Identify the top 3 most relevant courses from the provided context. When a query is about "project managers," consider courses on **Construction Management** and **BIM Management** as highly relevant. Prioritize full diploma programs over modular certificates.
+        2. Format your response as a numbered list (e.g., "1. Course Name...").
+        3. For each course, provide a concise summary using the following format:
+           **Course Name:** [The full course name]
+           **Event Code:** [The course event code]
+           **Description:** [A brief summary of the course content]
+           **URL:** [The official course URL]
+        4. End the response with a final sentence directing the user to the table below for more details.
+        
+        Here are the course summaries to use:
+        ---
+        {summaries_text}
+        ---
+        """
+        urls_str = "\n".join(retrieved_urls_with_names.values())
+        system_prompt = f"{system_prompt}\n\nRelevant URLs:\n{urls_str}"
+    
     messages = [{"role": "system", "content": system_prompt}]
     for role, content in conversation_history:
         messages.append({"role": role, "content": content})
@@ -256,20 +394,80 @@ def process_user_message(user_query: str):
 
     conversation_history.append(("user", user_query))
     conversation_history.append(("assistant", llm_response))
-
+    
     identified_course_from_retrieval = None
     if retrieved_course_names:
         identified_course_from_retrieval = next(iter(retrieved_course_names), None)
 
-    global_last_discussed_course_name = identified_course_from_retrieval
+    # --- FIX: Ensure global_last_discussed_course_name is set correctly for initial queries ---
+    if not has_specific_query and identified_course_from_retrieval:
+        global_last_discussed_course_name = identified_course_from_retrieval
     
     course_details_list = []
+    # --- FIX: Limit the table to show max 3 courses
     if retrieved_course_names:
-        for course_name in retrieved_course_names:
+        for course_name in list(retrieved_course_names)[:3]:
             if course_name in dict_of_courses_structured:
-                course_details_list.append(dict_of_courses_structured[course_name])
+                course_details = dict_of_courses_structured[course_name].copy()
+                course_url = course_details.get('url')
+                if course_url:
+                    print(f"Scraping details for table from {course_url}...")
+                    scraped_content = fetch_url_content(course_url)
 
-    return llm_response, course_details_list
+                    # --- NEW LOGIC: Extract the Event Code using a more specific regex
+                    event_code_match = re.search(r'EVENT\s*CODE:\s*([A-Z0-9]+)', scraped_content, re.IGNORECASE)
+                    if event_code_match:
+                        course_details['course_code'] = event_code_match.group(1).strip()
+                    else:
+                        course_details['course_code'] = 'N/A'
+                    
+                    # --- NEW LOGIC: Use a mix of regex and LLM for robust table data extraction
+                    # Extract fees using regex
+                    fees_match = re.search(r'S\$[\d,]+\.[\d]{2}', scraped_content, re.IGNORECASE)
+                    if fees_match:
+                        course_details['price'] = fees_match.group(0)
+                        
+                    # Extract duration using regex
+                    duration_match = re.search(r'(\d+\s+(?:month|year)s?)', scraped_content, re.IGNORECASE)
+                    if duration_match:
+                        course_details['duration'] = duration_match.group(0)
+
+                    # Extract entry requirements using LLM
+                    table_prompt_entry = f"""
+                    You are a data extraction bot. Extract the entry requirements for the course "{course_name}" from the provided text.
+                    Text:
+                    {scraped_content}
+                    Instructions:
+                    - Respond only with the entry requirements as a single string.
+                    - If the information is not present, use "N/A".
+                    - Do not include any extra text or conversational filler.
+                    """
+                    response_entry = get_llm_response([{"role": "system", "content": table_prompt_entry}])
+                    if "N/A" not in response_entry and "not available" not in response_entry:
+                        course_details['entry_requirements'] = response_entry.strip()
+
+                    # Extract schedule using LLM
+                    table_prompt_schedule = f"""
+                    You are a data extraction bot. Extract the schedule and intake dates for the course "{course_name}" from the provided text.
+                    Text:
+                    {scraped_content}
+                    Instructions:
+                    - Summarize the schedule and intake dates.
+                    - If the information is not present, use "N/A".
+                    - Do not include any extra text or conversational filler.
+                    """
+                    response_schedule = get_llm_response([{"role": "system", "content": table_prompt_schedule}])
+                    if "N/A" not in response_schedule and "not available" not in response_schedule:
+                        course_details['course_schedule'] = response_schedule.strip()
+
+                course_details_list.append(course_details)
+    
+    # 🐛 DEBUGGING LINE: Print the list of course details
+    print("--- Course Details List ---")
+    print(course_details_list)
+    print("---------------------------")
+    
+    return llm_response, course_details_list, has_specific_query
 
 # --- 8. Initialize Data and FAISS Components on Module Import ---
 load_structured_course_data()

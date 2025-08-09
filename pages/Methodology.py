@@ -1,5 +1,6 @@
+# pages/05_Methodology.py
 import streamlit as st
-import streamlit.components.v1 as components # <-- NEW IMPORT FOR MERMAID HTML EMBEDDING
+import streamlit.components.v1 as components
 
 def methodology_page():
     st.title("🧠 Methodology & Architecture")
@@ -37,7 +38,6 @@ def methodology_page():
     6.  **Context Update:** If a specific course was discussed or recommended, its full name is stored as the 'last discussed course' to facilitate follow-up questions.
     """)
 
-    # --- Start of HTML embed for Flowchart 1 ---
     mermaid_code_1 = """
     graph TD
         A[User Inputs Query] --> B[Generate Query Embedding];
@@ -55,9 +55,8 @@ def methodology_page():
             mermaid.initialize({{ startOnLoad: true, theme: 'neutral' }});
         </script>
         """,
-        height=750, # <-- Height adjusted
+        height=500,
     )
-    # --- End of HTML embed for Flowchart 1 ---
     st.caption("Flowchart: Initial Query / Recommendation Process")
 
 
@@ -75,7 +74,6 @@ def methodology_page():
     6.  **Display Response:** The generated answer is presented to the user, typically followed by a link to the official course website for further verification.
     """)
 
-    # --- Start of HTML embed for Flowchart 2 (REVISED) ---
     mermaid_code_2 = """
     graph TD
         A[User Inputs Follow-up Query] --> B{Intent & Context Resolution};
@@ -93,36 +91,32 @@ def methodology_page():
             mermaid.initialize({{ startOnLoad: true, theme: 'neutral' }});
         </script>
         """,
-        height=1000, # <-- Adjusted height for this chart
+        height=900,
     )
-    # --- End of HTML embed for Flowchart 2 ---
     st.caption("Flowchart: Follow-up Query Process")
 
-    # --- NEW SECTION: Interaction Logging Process ---
     st.markdown("""
     ---
     ### 🧭Use Case 3: Process Flow for Interaction Logging Process
 
-    To facilitate monitoring, debugging, and future improvements, all user queries and the corresponding assistant responses are logged. This ensures a record of how users interact with the chatbot and the quality of generated replies.
+    To facilitate monitoring, debugging, and future improvements, all user queries and the corresponding assistant responses are logged to a Google Sheet. This provides a centralized and easily accessible record of how users interact with the chatbot and the quality of generated replies.
 
-    1.  **Interaction Trigger:** After the LLM generates a response to a user's query, the logging process is initiated.
-    2.  **Retrieve User ID:** The authenticated user's ID (e.g., 'user1', 'user2') is retrieved from Streamlit's session state.
-    3.  **Retrieve Log File Path:** The designated log file path (e.g., `logs/user_interactions.jsonl`) is obtained from the application's secrets configuration.
-    4.  **Ensure Log Directory Exists:** The system checks if the directory for the log file exists and creates it if it doesn't.
-    5.  **Prepare Log Entry:** A structured log entry is created, including a timestamp, the authenticated user's ID, the original query, and the assistant's final response.
-    6.  **Append to Log File:** This structured entry (formatted as a JSON object) is appended as a new line to the specified log file, ensuring a continuous record of interactions.
+    1.  **Interaction Trigger:** After the LLM generates a response, the logging process is initiated.
+    2.  **Prepare Log Entry:** A structured log entry is created, including a timestamp, the user's ID, the query, and the assistant's response.
+    3.  **Authenticate & Connect:** The application uses securely stored service account credentials to authenticate with the Google Sheets API and open the designated spreadsheet.
+    4.  **Append to Sheet:** The prepared log entry is formatted and appended as a new row to a specific worksheet in the Google Sheet.
+    5.  **Log Success:** The interaction is successfully logged in the shared Google Sheet.
     """)
 
     mermaid_code_3 = """
     graph TD
         A[User Submits Query] --> B{Assistant Generates Response};
         B --> C[Call log_interaction];
-        C --> D[Get Authenticated User ID];
-        D --> E[Get Log File Path];
-        E --> F{Check/Create Log Directory};
-        F --> G[Prepare Log Entry Details];
-        G --> H[Append to Log File];
-        H --> I[Interaction Logged];
+        C --> D[Prepare Log Entry Details];
+        D --> E[Authenticate with Google Sheets API];
+        E --> F[Open Google Spreadsheet & Worksheet];
+        F --> G[Append New Row to Sheet];
+        G --> H[Interaction Logged];
     """
     components.html(
         f"""
@@ -132,10 +126,9 @@ def methodology_page():
             mermaid.initialize({{ startOnLoad: true, theme: 'neutral' }});
         </script>
         """,
-        height=1100, # Adjust height as needed for the logging flow
+        height=800,
     )
     st.caption("Flowchart: Interaction Logging Process")
-    # --- END NEW SECTION ---
 
     st.markdown("""
     ---
